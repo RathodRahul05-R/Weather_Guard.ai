@@ -1,0 +1,694 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pro Weather – Full-Stacky Frontend</title>
+
+  <!-- Bootstrap 5 -->
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Leaflet (Map) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+  <!-- Chart.js for a neat hourly temperature chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg: #01040c;
+      --card: #d1dde2;
+      --text: #0fbe21;
+      --muted: #0a0101;
+      --accent: #15b7ed;
+    }
+    body{ background: var(--bg); color: var(--text); }
+    .navbar{ background: linear-gradient(90deg, #1932a1, #ded00c); }
+    .brand-accent{ color: var(--accent); }
+    .card{ background: var(--card); border: 1px solid rgba(222, 14, 14, 0.06); box-shadow: 0 10px 30px rgba(0,0,0,.25); }
+    .badge-soft{ background: #0a95d626; color: var(--accent); }
+    .muted{ color: var(--muted); }
+    #map{ height: 420px; border-radius: 16px; }
+    .cursor-pointer{ cursor:pointer; }
+    .minw-110{ min-width:110px; }
+    .scroll-x{ overflow-x:auto; }
+    .list-group-item{ background: transparent; color: var(--text); border-color: rgba(255, 255, 255, 0.08);}
+    .form-control, .form-select{ background: #0e1325; color: var(--text); border-color: rgba(255,255,255,.12); }
+    .form-control::placeholder{ color: #7e8bb3; }
+    .btn-accent{ background: var(--accent); border: none; color: #03101a; font-weight:600; }
+    .btn-accent:hover{ filter: brightness(1.05); }
+    a, a:hover{ color: var(--accent); }
+    canvas{ max-height: 260px; }
+    .emoji-large{ font-size: 42px; line-height: 1; }
+    .summary-row { gap: 1rem; align-items: center; display:flex; }
+  </style>
+</head>
+<body>
+  <!-- Top Nav -->
+  <nav class="navbar navbar-expand-lg navbar-dark sticky-top">
+    <div class="container">
+      <a class="navbar-brand fw-bold" href="#">
+        Pro<span class="brand-accent">Weather</span>
+      </a>
+      <div class="d-flex gap-2 ms-auto">
+        <button id="locBtn" class="btn btn-sm btn-accent">Use My Location</button>
+        <button id="notifyBtn" class="btn btn-sm btn-outline-light">Enable Alerts</button>
+      </div>
+    </div>
+  </nav>
+
+  <main class="container my-4">
+    <!-- Search + Units -->
+    <div class="row g-3 align-items-end">
+      <div class="col-md-6">
+        <label class="form-label">Search city</label>
+        <div class="input-group">
+          <input id="searchInput" class="form-control" placeholder="e.g., Hyderabad, Mumbai, Delhi" />
+          <button id="searchBtn" class="btn btn-accent">Search</button>
+        </div>
+        <div id="searchHints" class="small muted mt-2"></div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Units</label>
+        <select id="unitSelect" class="form-select">
+          <option value="metric" selected>Metric (°C, m/s)</option>
+          <option value="imperial">Imperial (°F, mph)</option>
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Language</label>
+        <select id="langSelect" class="form-select">
+          <option value="en" selected>English</option>
+          <option value="hi">Hindi</option>
+          <option value="te">Telugu</option>
+          <option value="ta">Tamil</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Map + Current -->
+    <div class="row g-4 mt-1">
+      <div class="col-lg-7">
+        <div class="card p-3">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 class="mb-0">Interactive Map</h5>
+            <span class="badge rounded-pill badge-soft">Click anywhere to get forecast</span>
+          </div>
+          <div id="map"></div>
+          <div class="small muted mt-2">Tiles © OpenStreetMap contributors</div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card p-3 h-100">
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <h5 id="placeTitle" class="mb-0">Current Weather</h5>
+            <span id="updatedAt" class="small muted"></span>
+          </div>
+          <div id="currentWrap" class="d-flex gap-3 align-items-center">
+            <div class="display-4 fw-bold" id="currTemp">--</div>
+            <div>
+              <div class="summary-row">
+                <div id="currEmoji" class="emoji-large">—</div>
+                <div>
+                  <div id="currSummary" class="fs-5">—</div>
+                  <div class="small muted" id="currMeta">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <hr/>
+          <div class="row text-center">
+            <div class="col">
+              <div class="muted small">Wind</div>
+              <div id="currWind" class="fw-semibold">—</div>
+            </div>
+            <div class="col">
+              <div class="muted small">Humidity</div>
+              <div id="currHum" class="fw-semibold">—</div>
+            </div>
+            <div class="col">
+              <div class="muted small">Precip</div>
+              <div id="currPrec" class="fw-semibold">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div id="alertsCard" class="card p-3 mt-4 d-none">
+      <div class="d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Weather Alerts</h5>
+        <span id="alertsCount" class="badge rounded-pill bg-danger">0</span>
+      </div>
+      <div id="alertsList" class="list-group list-group-flush mt-2"></div>
+    </div>
+
+    <!-- Hourly --> 
+    <div class="card p-3 mt-4">
+      <div class="d-flex justify-content-between align-items-center">
+        <h5 class="mb-0">Next 24 Hours</h5>
+        <div class="small muted" id="hoursNote">temperature</div>
+      </div>
+      <canvas id="hoursChart" aria-label="Hourly temperature"></canvas>
+      <div class="small muted mt-2">Scroll map or click a new location to refresh.</div>
+    </div>
+
+    <!-- Daily -->
+    <div class="card p-3 mt-4">
+      <h5 class="mb-3">7-Day Forecast</h5>
+      <div id="daysRow" class="d-flex gap-3 scroll-x"></div>
+    </div>
+
+    <!-- Footer -->
+    <div class="text-center muted mt-4 mb-5 small">
+      Built with Open-Meteo APIs, Leaflet, Bootstrap. No API key required.
+    </div>
+  </main>
+
+  <!-- Vendor scripts -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+  // ------------------------------
+  // Utilities & Config
+  // ------------------------------
+  const $ = (sel) => document.querySelector(sel);
+  const fmt = (n, digits=0) => (n===null||n===undefined) ? "—" : Number(n).toFixed(digits);
+  const storageKey = "proweather.cache.v1";
+  const dayKey = () => new Date().toISOString().slice(0,10); // YYYY-MM-DD for "daily updates"
+  let map, marker;
+  let hoursChart;
+
+  // Units mapping for Open-Meteo query params + UI
+  function unitConfig(mode){
+    if(mode==='imperial'){
+      return {
+        tempUnit: 'fahrenheit',
+        windUnit: 'mph',
+      };
+    }
+    return {
+      tempUnit: 'celsius',
+      windUnit: 'ms', // m/s (Open-Meteo unit)
+    };
+  }
+
+  // Cache helpers (refreshes once per day)
+  function readCache(){
+    try{
+      const raw = localStorage.getItem(storageKey);
+      if(!raw) return null;
+      const obj = JSON.parse(raw);
+      if(obj?.day !== dayKey()) return null; // new day -> bust cache
+      return obj;
+    }catch{ return null; }
+  }
+  function writeCache(payload){
+    const obj = { day: dayKey(), ...payload };
+    localStorage.setItem(storageKey, JSON.stringify(obj));
+  }
+
+  // Browser notifications for new alerts
+  async function maybeNotifyAlerts(alerts, place){
+    if(!alerts || alerts.length===0) return;
+    if(!('Notification' in window)) return;
+    if(Notification.permission !== 'granted') return;
+    const titles = alerts.slice(0,3).map(a => a.event).join(' • ');
+    const body = alerts[0].description ? alerts[0].description.slice(0,140)+'…' : 'Weather alert in your area.';
+    new Notification(`Weather Alerts for ${place}`, { body });
+  }
+
+  // ------------------------------
+  // Map
+  // ------------------------------
+  function initMap(){
+    map = L.map('map', { zoomControl: true }).setView([17.3850, 78.4867], 6); // default: Hyderabad region
+    const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19, attribution: '&copy; OpenStreetMap'
+    }).addTo(map);
+
+    marker = L.marker([17.3850, 78.4867], { draggable:false }).addTo(map);
+
+    // Click to get forecast
+    map.on('click', async (e) => {
+      const { lat, lng } = e.latlng;
+      marker.setLatLng([lat, lng]);
+      await handleForecastByCoords(lat, lng, null);
+    });
+  }
+
+  // ------------------------------
+  // Geocoding (Open-Meteo Geocoding API)
+  // ------------------------------
+  async function geocodeByName(q){
+    const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=${$('#langSelect').value}`;
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('Geocoding failed');
+    const data = await res.json();
+    return data.results || [];
+  }
+
+  // Reverse: best effort using the same API (nearest place)
+  async function reverseLookup(lat, lon){
+    const url = `https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=${$('#langSelect').value}`;
+    try{
+      const res = await fetch(url);
+      if(!res.ok) return null;
+      const data = await res.json();
+      const r = data?.results?.[0];
+      if(!r) return null;
+      return r.name + (r.admin1 ? ', ' + r.admin1 : '') + (r.country ? ', ' + r.country : '');
+    }catch{ return null; }
+  }
+
+  // ------------------------------
+  // Forecast + Alerts (Open-Meteo)
+  // ------------------------------
+  async function fetchForecast(lat, lon){
+    const units = unitConfig($('#unitSelect').value);
+    const url = new URL('https://api.open-meteo.com/v1/forecast');
+    const params = {
+      latitude: lat, longitude: lon,
+      current_weather: true,
+      hourly: ['temperature_2m','relative_humidity_2m','precipitation_probability','wind_speed_10m','weathercode'].join(','),
+      daily: ['temperature_2m_max','temperature_2m_min','precipitation_sum','sunrise','sunset','weathercode'].join(','),
+      temperature_unit: units.tempUnit,
+      wind_speed_unit: units.windUnit,
+      timezone: 'auto',
+      forecast_days: 7
+    };
+    Object.keys(params).forEach(k => url.searchParams.set(k, params[k]));
+    const res = await fetch(url);
+    if(!res.ok) throw new Error('Forecast failed');
+    return await res.json();
+  }
+
+  async function fetchAlerts(lat, lon){
+    const url = new URL('https://api.open-meteo.com/v1/warnings');
+    url.searchParams.set('latitude', lat);
+    url.searchParams.set('longitude', lon);
+    url.searchParams.set('timezone', 'auto');
+    // Optional: limit results
+    url.searchParams.set('past_days', 0);
+    const res = await fetch(url);
+    if(!res.ok) return { warnings: [] };
+    return await res.json();
+  }
+
+  // ------------------------------
+  // Weather Code Mappings (Text + Emoji)
+  // Reference: Open-Meteo weather codes
+  // ------------------------------
+  function weatherCodeToText(code){
+    const map = {
+      0:'Clear sky',
+      1:'Mainly clear',
+      2:'Partly cloudy',
+      3:'Overcast',
+      45:'Fog',
+      48:'Depositing rime fog',
+      51:'Light drizzle',
+      53:'Drizzle',
+      55:'Dense drizzle',
+      56:'Freezing drizzle',
+      57:'Dense freezing drizzle',
+      61:'Slight rain',
+      63:'Rain',
+      65:'Heavy rain',
+      66:'Freezing rain',
+      67:'Heavy freezing rain',
+      71:'Slight snow fall',
+      73:'Snow fall',
+      75:'Heavy snow fall',
+      77:'Snow grains',
+      80:'Slight rain showers',
+      81:'Moderate rain showers',
+      82:'Violent rain showers',
+      85:'Slight snow showers',
+      86:'Heavy snow showers',
+      95:'Thunderstorm',
+      96:'Thunderstorm with slight hail',
+      99:'Thunderstorm with heavy hail'
+    };
+    return map[code] || 'Unknown';
+  }
+
+  function weatherCodeToEmoji(code, isNight=false){
+    // Use night flag for clear vs night-clear
+    if(code === 0) return isNight ? '🌙' : '☀️';
+    if(code === 1) return isNight ? '🌙' : '🌤️';
+    if(code === 2) return '⛅';
+    if(code === 3) return '☁️';
+    if([45,48].includes(code)) return '🌫️';
+    if([51,53,55,56,57].includes(code)) return '🌦️';
+    if([61,63,65,80,81,82].includes(code)) return '🌧️';
+    if([66,67].includes(code)) return '🧊🌧️';
+    if([71,73,75,77,85,86].includes(code)) return '❄️';
+    if([95,96,99].includes(code)) return '🌩️';
+    return '🌡️';
+  }
+
+  // Helper: decide if current time is night using sunrise/sunset strings for the current day (ISO timestamps)
+  function isNightNow(forecast){
+    try{
+      const tz = forecast?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const now = new Date();
+      // daily.sunrise and daily.sunset are arrays parallel to daily.time
+      const sr = forecast?.daily?.sunrise?.[0];
+      const ss = forecast?.daily?.sunset?.[0];
+      if(!sr || !ss) return false;
+      const sunrise = new Date(sr);
+      const sunset = new Date(ss);
+      return (now < sunrise) || (now >= sunset);
+    }catch{return false;}
+  }
+
+  // ------------------------------
+  // Renderers
+  // ------------------------------
+  function renderCurrent(fullForecast, place){
+    // Open-Meteo: current_weather has temperature & wind, but we also use hourly fields for humidity/precip etc.
+    const cWeather = fullForecast.current_weather || {}; // {temperature, windspeed, weathercode, time}
+    // fallback to hourly current index
+    const nowISO = new Date().toISOString().slice(0,16);
+    const hourly = fullForecast.hourly || {};
+    const idx = hourly.time ? hourly.time.findIndex(t => t.startsWith(new Date().toISOString().slice(0,13))) : -1;
+    const temperature = cWeather.temperature ?? (idx>=0 ? hourly.temperature_2m[idx] : null);
+    const wind = cWeather.windspeed ?? (idx>=0 ? hourly.wind_speed_10m[idx] : null);
+    const weather_code = cWeather.weathercode ?? (idx>=0 ? hourly.weathercode[idx] : null);
+    // humidity & precipitation fallback
+    const humidity = (hourly.relative_humidity_2m && idx>=0) ? hourly.relative_humidity_2m[idx] : null;
+    const precip = (hourly.precipitation_probability && idx>=0) ? hourly.precipitation_probability[idx] : null;
+
+    const forecast = fullForecast;
+    const nightFlag = isNightNow(forecast);
+
+    $('#placeTitle').textContent = place || 'Current Weather';
+    $('#currTemp').textContent = (temperature !== null && temperature !== undefined) ? fmt(temperature,1) + '°' : '—';
+    $('#currSummary').textContent = weatherCodeToText(weather_code) || '—';
+    $('#currEmoji').textContent = weatherCodeToEmoji(weather_code, nightFlag);
+    const meta = `Humidity ${fmt(humidity)}% • Precip ${fmt(precip)}%`;
+    $('#currMeta').textContent = meta;
+    $('#currWind').textContent = fmt(wind,1) + ( $('#unitSelect').value==='imperial' ? ' mph' : ' m/s');
+    $('#currHum').textContent = fmt(humidity) + '%';
+    $('#currPrec').textContent = (precip!==null && precip!==undefined) ? fmt(precip,1) : '—';
+    $('#updatedAt').textContent = 'Updated: ' + new Date().toLocaleString();
+  }
+
+  function renderDaily(fullForecast){
+    const d = fullForecast.daily;
+    const daysEl = $('#daysRow');
+    daysEl.innerHTML = '';
+    if(!d || !d.time) return;
+    for(let i=0;i<d.time.length;i++){
+      const day = new Date(d.time[i]);
+      const weatherCode = d.weathercode ? d.weathercode[i] : null;
+      // determine day/night icon using sunrise/sunset for that day
+      const sunrise = d.sunrise ? new Date(d.sunrise[i]) : null;
+      const sunset = d.sunset ? new Date(d.sunset[i]) : null;
+      // simple rule: use day emoji for daytime entry (we show day forecast)
+      const emoji = weatherCodeToEmoji(weatherCode, false);
+      const card = document.createElement('div');
+      card.className = 'card p-3 text-center minw-110';
+      card.innerHTML = `
+        <div class="fw-semibold">${day.toLocaleDateString(undefined, { weekday:'short' })}</div>
+        <div class="muted small">${day.toLocaleDateString()}</div>
+        <div class="display-6 fw-bold my-2">${fmt(d.temperature_2m_max[i],0)}°</div>
+        <div class="muted">Min ${fmt(d.temperature_2m_min[i],0)}°</div>
+        <div class="muted small mt-1">${emoji} ${weatherCodeToText(weatherCode)}</div>
+      `;
+      daysEl.appendChild(card);
+    }
+  }
+
+  function renderHourlyChart(fullForecast){
+    const h = fullForecast.hourly;
+    if(!h || !h.time) return;
+    // Next 24 hours from now
+    const now = Date.now();
+    const points = [];
+    for(let i=0;i<h.time.length;i++){
+      const t = new Date(h.time[i]).getTime();
+      if(t >= now && points.length < 24){
+        points.push({ t, temp: h.temperature_2m[i], code: h.weathercode ? h.weathercode[i] : null });
+      }
+    }
+    const labels = points.map(p => new Date(p.t).toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }));
+    const temps = points.map(p => p.temp);
+
+    const ctx = document.getElementById('hoursChart');
+    if(hoursChart){ hoursChart.destroy(); }
+    hoursChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Temperature (next 24h)',
+          data: temps,
+          tension: .35,
+          fill: false,
+          pointRadius: 3,
+          borderWidth: 2
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => items[0].label,
+              label: (ctx) => {
+                const v = ctx.formattedValue;
+                const idx = ctx.dataIndex;
+                const code = points[idx]?.code;
+                const emoji = weatherCodeToEmoji(code);
+                return `${emoji} ${v}°`;
+              }
+            },
+            mode: 'index',
+            intersect: false
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#91a0c2' }, grid: { display:false }},
+          y: { ticks: { color: '#91a0c2' }, grid: { color: 'rgba(255,255,255,.08)' } }
+        }
+      }
+    });
+  }
+
+  function renderAlerts(alertData){
+    const list = $('#alertsList');
+    const wrap = $('#alertsCard');
+    list.innerHTML = '';
+    const alerts = alertData?.warnings || [];
+    $('#alertsCount').textContent = alerts.length;
+    if(alerts.length === 0){
+      wrap.classList.add('d-none');
+      return;
+    }
+    wrap.classList.remove('d-none');
+
+    alerts.forEach(a => {
+      const item = document.createElement('div');
+      item.className = 'list-group-item';
+      const starts = a.onset ? new Date(a.onset).toLocaleString() : '';
+      const ends = a.expires ? new Date(a.expires).toLocaleString() : '';
+      item.innerHTML = `
+        <div class="d-flex justify-content-between">
+          <div>
+            <div class="fw-semibold">${a.event || 'Alert'}</div>
+            <div class="small muted">${a.sender || ''}</div>
+          </div>
+          <span class="badge bg-danger">${a.severity || 'warning'}</span>
+        </div>
+        <div class="small mt-2">${(a.description || '').replace(/\n/g,'<br>')}</div>
+        <div class="small muted mt-2">From: ${starts || '—'} &nbsp;|&nbsp; Until: ${ends || '—'}</div>
+      `;
+      list.appendChild(item);
+    });
+  }
+
+  // ------------------------------
+  // Controller
+  // ------------------------------
+  async function handleForecastByCoords(lat, lon, placeOverride){
+    // Try cache (same coords & day)
+    const cache = readCache();
+    if(cache && cache.lat === lat && cache.lon === lon){
+      renderCurrent(cache.forecast, cache.place);
+      renderDaily(cache.forecast);
+      renderHourlyChart(cache.forecast);
+      renderAlerts(cache.alerts);
+      $('#updatedAt').textContent = 'From cache: ' + new Date(cache.cachedAt).toLocaleString();
+      return;
+    }
+
+    $('#placeTitle').textContent = 'Loading…';
+    const [forecast, alerts] = await Promise.all([
+      fetchForecast(lat, lon),
+      fetchAlerts(lat, lon)
+    ]);
+
+    const place = placeOverride || await reverseLookup(lat, lon) || `Lat ${lat.toFixed(2)}, Lon ${lon.toFixed(2)}`;
+
+    renderCurrent(forecast, place);
+    renderDaily(forecast);
+    renderHourlyChart(forecast);
+    renderAlerts(alerts);
+
+    writeCache({ lat, lon, place, forecast, alerts, cachedAt: Date.now() });
+    maybeNotifyAlerts(alerts?.warnings || [], place);
+  }
+
+  // ------------------------------
+  // Events
+  // ------------------------------
+ async function useGeolocation(){
+  if(!navigator.geolocation){
+    alert('Geolocation not supported. Using IP-based location.');
+    return fallbackByIP();
+  }
+
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    const { latitude, longitude } = pos.coords;
+    map.setView([latitude, longitude], 10);
+    marker.setLatLng([latitude, longitude]);
+    await handleForecastByCoords(latitude, longitude, null);
+  }, async (err) => {
+    console.warn("Geolocation error:", err.message);
+
+    if(err.code === err.PERMISSION_DENIED){
+      alert("Permission denied. Using IP-based location instead.");
+      return fallbackByIP();
+    }
+
+    if(err.code === err.TIMEOUT){
+      alert("Timeout. Retrying with low accuracy...");
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        map.setView([latitude, longitude], 10);
+        marker.setLatLng([latitude, longitude]);
+        await handleForecastByCoords(latitude, longitude, null);
+      }, () => {
+        alert("Still failed. Falling back to IP location.");
+        fallbackByIP();
+      }, { enableHighAccuracy: false, timeout: 20000 });
+    } else {
+      alert("Location failed. Using IP-based location.");
+      fallbackByIP();
+    }
+  }, { enableHighAccuracy: true, timeout: 10000 });
+}
+
+// First IP fallback
+async function fallbackByIP(){
+  try{
+    const res = await fetch("https://ipapi.co/json/");
+    const data = await res.json();
+    if(data && data.latitude && data.longitude){
+      setLocation(data.latitude, data.longitude, data.city + ", " + data.country_name);
+    } else {
+      console.warn("ipapi.co failed, trying ipwho.is...");
+      return fallbackByIP2();
+    }
+  }catch(e){
+    console.warn("ipapi.co error:", e);
+    return fallbackByIP2();
+  }
+}
+
+// Second IP fallback
+async function fallbackByIP2(){
+  try{
+    const res = await fetch("https://ipwho.is/");
+    const data = await res.json();
+    if(data && data.latitude && data.longitude){
+      setLocation(data.latitude, data.longitude, data.city + ", " + data.country);
+    } else {
+      alert("Could not detect location. Please search manually.");
+    }
+  }catch(e){
+    console.error("ipwho.is failed:", e);
+    alert("Could not detect location. Please search manually.");
+  }
+}
+
+// Helper
+async function setLocation(lat, lon, label){
+  map.setView([lat, lon], 8);
+  marker.setLatLng([lat, lon]);
+  await handleForecastByCoords(lat, lon, label);
+}
+  async function doSearch(){
+    const q = $('#searchInput').value.trim();
+    if(!q) return;
+    $('#searchHints').textContent = 'Searching…';
+    try{
+      const results = await geocodeByName(q);
+      if(results.length === 0){
+        $('#searchHints').textContent = 'No matches. Try a different name.';
+        return;
+      }
+      // Show quick picks
+      $('#searchHints').innerHTML = results.map(r => `
+        <span class="badge rounded-pill bg-secondary cursor-pointer me-2 mb-2"
+              data-lat="${r.latitude}" data-lon="${r.longitude}"
+              title="Click to load">${r.name}${r.admin1?', '+r.admin1:''}${r.country?', '+r.country:''}</span>
+      `).join('');
+      // Attach click
+      document.querySelectorAll('#searchHints .badge').forEach(el => {
+        el.addEventListener('click', async () => {
+          const lat = parseFloat(el.getAttribute('data-lat'));
+          const lon = parseFloat(el.getAttribute('data-lon'));
+          const place = el.textContent;
+          map.setView([lat, lon], 10);
+          marker.setLatLng([lat, lon]);
+          await handleForecastByCoords(lat, lon, place);
+        });
+      });
+    }catch(e){
+      $('#searchHints').textContent = 'Search error. Try again.';
+    }
+  }
+
+  // Notifications
+  $('#notifyBtn')?.addEventListener('click', async () => {
+    if(!('Notification' in window)) return alert('Notifications not supported.');
+    const p = await Notification.requestPermission();
+    if(p==='granted') alert('Alerts enabled. We will notify when warnings appear.');
+  });
+
+  // Unit or language change -> re-fetch current marker point
+  async function refreshFromMarker(){
+    const { lat, lng } = marker.getLatLng();
+    await handleForecastByCoords(lat, lng, $('#placeTitle').textContent);
+  }
+
+  // Wiring
+  window.addEventListener('DOMContentLoaded', async () => {
+    initMap();
+    // If there’s a cache for today, restore view first
+    const cache = readCache();
+    if(cache){
+      map.setView([cache.lat, cache.lon], 10);
+      marker.setLatLng([cache.lat, cache.lon]);
+      renderCurrent(cache.forecast, cache.place);
+      renderDaily(cache.forecast);
+      renderHourlyChart(cache.forecast);
+      renderAlerts(cache.alerts);
+      $('#updatedAt').textContent = 'From cache: ' + new Date(cache.cachedAt).toLocaleString();
+    }else{
+      // Try user location initially
+      useGeolocation();
+    }
+
+    $('#locBtn').addEventListener('click', useGeolocation);
+    $('#searchBtn').addEventListener('click', doSearch);
+    $('#searchInput').addEventListener('keydown', (e) => { if(e.key==='Enter') doSearch(); });
+    $('#unitSelect').addEventListener('change', refreshFromMarker);
+    $('#langSelect').addEventListener('change', refreshFromMarker);
+  });
+  </script>
+</body>
+</html>
