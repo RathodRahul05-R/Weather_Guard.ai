@@ -1,0 +1,1 @@
+Climate change is increasing the frequency and intensity of natural disasters such as floods, extreme heatwaves, and air pollution spikes, leaving communities vulnerable and unprepared. Traditional early warning systems are generic, reactive, and lack localized insights, which leads to delayed responses and higher risks to human lives, infrastructure, and resources
